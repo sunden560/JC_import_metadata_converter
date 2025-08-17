@@ -1,0 +1,249 @@
+Sub JC一括登録メタデータ作成()
+    Dim wb As Workbook
+    Dim ws As Worksheet
+    Dim mappingList As Collection
+    Dim sheetName As String
+    Dim pattern As String
+    Dim matches As Object
+    Dim regex As Object
+    Dim item As Variant
+    Dim mapping As Variant
+    Dim mappingWs As Worksheet
+    Dim lastRowMapping As Long
+    Dim mappingRange As Range
+    Dim mappingArray As Variant
+    Dim sourceWs As Worksheet
+    Dim sourceArray As Variant
+    Dim sourceRowCount As Long
+    Dim sourceColCount As Long
+    Dim targetWs As Worksheet
+    Dim parentHeader As String
+    Dim i As Long
+    Dim j As Long
+    Dim k As Long
+    Dim headerColNum As Long
+    Dim dataColNum As Long
+    Dim maxInput As Long
+    Dim pos As Long
+    Dim outputArray(10000, 3) As Variant
+    Dim tmpWs As Worksheet
+    Dim tmpRowCount As Long
+    Dim tmpColCount As Long
+    Dim inputColNum As Long
+    Dim outputArray2 As Variant
+    Dim metadata As Variant
+    Dim lang As String
+
+    Set wb = ThisWorkbook
+    
+    'インプットデータ取得
+    Set sourceWs = wb.Worksheets("input")
+    sourceArray = sourceWs.UsedRange.Value
+    sourceRowCount = sourceWs.Cells(sourceWs.Rows.Count, "A").End(xlUp).Row
+    sourceColCount = sourceWs.Cells(1, sourceWs.Columns.Count).End(xlToLeft).Column
+    
+    'mappingシートを取得
+    Set mappingList = New Collection
+
+    ' 全シートをループ
+    For Each ws In wb.Sheets
+        sheetName = ws.Name
+    '入力シートのmapping項目にmappingシートにが該当する値が入力されている場合のみ、処理の対象とする
+        mappingname = Null
+        For i = 2 To sourceRowCount
+            If "mapping(" & sourceArray(i, 1) & ")" = sheetName Then
+                mappingname = sourceArray(i, 1)
+            End If
+        Next i
+        If IsNull(mappingname) = False Then
+            mappingList.Add mappingname
+        End If
+    Next ws
+
+    ' 出力先のワークブックを作成
+    Dim targetWb As Workbook
+    Set targetWb = Workbooks.Add
+    
+    ' mappingシートを設定
+    For Each mapping In mappingList
+        Set mappingWs = wb.Worksheets("mapping(" & mapping & ")")
+        ' mapping のA列からH列の範囲を配列に格納
+        lastRowMapping = mappingWs.Cells(mappingWs.Rows.Count, "B").End(xlUp).Row
+        Set mappingRange = mappingWs.Range("A1:H" & lastRowMapping)
+        mappingArray = mappingRange.Value
+        
+        ' 出力先のシートを設定（Sheet3）
+        targetWb.Sheets.Add After:=targetWb.Sheets(Sheets.Count)
+        targetWb.Sheets(Sheets.Count).Name = "metadata(" & mapping & ")"
+        Set targetWs = targetWb.Worksheets("metadata(" & mapping & ")")
+    
+        parentHeader = ""
+        
+        i = 0
+        k = 0
+        headerColNum = 1
+        For i = 1 To UBound(mappingArray, 1)
+    '重複項目の最大長
+            maxInput = 1
+            pos = InStr(mappingArray(i, 2), "[-1].")
+            
+    'データの列番号
+            dataColNum = 0
+            For n = 1 To sourceColCount
+                If sourceArray(1, n) = mappingArray(i, 6) Then
+                    dataColNum = n
+                End If
+            Next n
+            
+            If (pos > 0) And (dataColNum > 0) Then
+'            If (pos > 0) And (mappingArray(i, 6) <> "") Then
+    '出力項目の先頭部分が異なる場合
+                If (parentHeader = Left(mappingArray(i, 2), pos)) Then
+                
+                Else
+                    parentHeader = mappingArray(i, 2)
+    '繰り返し項目の最大繰り返し数を調べる
+                    For j = 2 To sourceRowCount
+                        If (UBound(Split(sourceArray(j, dataColNum), ";")) + 1 > maxInput) And (sourceArray(j, 1) = mapping) Then
+                            maxInput = UBound(Split(sourceArray(j, dataColNum), ";")) + 1
+                        End If
+                    Next j
+                End If
+            Else
+                    parentHeader = mappingArray(i, 2)
+                    headerColNum = i
+            End If
+    
+    'outputArray = (ヘッダ行番号, 順序1, 順序2, データ列番号)
+            If InStr(mappingArray(i, 2), "[-1].") > 0 Then
+                For l = 1 To maxInput
+                    outputArray(k, 0) = i
+                    outputArray(k, 1) = headerColNum
+                    outputArray(k, 2) = l - 1
+                    outputArray(k, 3) = dataColNum
+                    k = k + 1
+                Next l
+            Else
+               outputArray(k, 0) = i
+               outputArray(k, 1) = headerColNum
+               outputArray(k, 2) = 0
+               outputArray(k, 3) = dataColNum
+               k = k + 1
+            End If
+        Next i
+        
+    ' outputArray をソートのために書き出し
+        Set tmpWs = targetWb.Sheets("Sheet1")
+        tmpWs.Cells.Clear
+    
+        tmpRowCount = UBound(outputArray, 1)
+        tmpColCount = UBound(outputArray, 2)
+        For i = 0 To tmpRowCount
+                For j = 0 To tmpColCount
+                    tmpWs.Cells(i + 1, j + 1).Value = outputArray(i, j)
+                Next j
+        Next i
+        
+    '並べ替え用仮シート上でソート
+        lastRow = tmpWs.Cells(tmpWs.Rows.Count, "B").End(xlUp).Row
+        With tmpWs.Sort
+            .SortFields.Clear
+            .SortFields.Add Key:=tmpWs.Range("B2:B" & lastRow), _
+                SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:=xlSortNormal
+            .SortFields.Add Key:=tmpWs.Range("C2:C" & lastRow), _
+                SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:=xlSortNormal
+            .SetRange tmpWs.Range("A1:D" & lastRow)
+            .Header = xlYes
+            .Apply
+            outputArray2 = tmpWs.Range("A1:D" & lastRow).Value
+        End With
+        
+    'メタデータ書き出し
+        targetWs.Cells.Clear
+        For i = 1 To lastRow
+            targetWs.Cells(1, i).Value = mappingArray(outputArray2(i, 1), 1)
+            targetWs.Cells(2, i).Value = Replace(mappingArray(outputArray2(i, 1), 2), "[-1]", "[" & outputArray2(i, 3) & "]")
+            targetWs.Cells(3, i).Value = Replace(mappingArray(outputArray2(i, 1), 3), "[-1]", "[" & outputArray2(i, 3) & "]")
+            targetWs.Cells(4, i).Value = mappingArray(outputArray2(i, 1), 4)
+            targetWs.Cells(5, i).Value = mappingArray(outputArray2(i, 1), 5)
+            
+            inputColNum = outputArray2(i, 4)
+            If inputColNum > 0 Then
+                For j = 2 To sourceRowCount
+                    metadata = Split(sourceArray(j, inputColNum), ";")
+                    x = outputArray2(i, 3)
+                    If (sourceArray(j, 1) = mapping) And (outputArray2(i, 3) < UBound(metadata) + 1) Then
+                        Select Case mappingArray(outputArray2(i, 1), 7)
+                        Case "doi"
+                            If metadata(outputArray2(i, 3)) Like "https*" Then
+                                targetWs.Cells(j + 4, i).Value = metadata(outputArray2(i, 3))
+                            ElseIf (Len(Trim(metadata(outputArray2(i, 3)))) > 0) Then
+                                targetWs.Cells(j + 4, i).Value = "https://doi.org/" & Trim(metadata(outputArray2(i, 3)))
+                            End If
+                        Case "fixed"
+                            targetWs.Cells(j + 4, i).NumberFormat = "@"
+                            If (Len(Trim(metadata(outputArray2(i, 3)))) > 0) Then
+                                targetWs.Cells(j + 4, i).Value = mappingArray(outputArray2(i, 1), 8)
+                            End If
+                        Case "familyname"
+                            If InStr(metadata(outputArray2(i, 3)), ",") > 0 Then
+                                targetWs.Cells(j + 4, i).Value = Left(metadata(outputArray2(i, 3)), InStr(metadata(outputArray2(i, 3)), ",") - 1)
+                            End If
+                        Case "givenname"
+                            If InStr(metadata(outputArray2(i, 3)), ",") > 0 Then
+                                targetWs.Cells(j + 4, i).Value = Trim(Mid(metadata(outputArray2(i, 3)), InStr(metadata(outputArray2(i, 3)), ",") + 1))
+                            Else
+                                targetWs.Cells(j + 4, i).Value = mappingArray(outputArray2(i, 1), 8)
+                            End If
+                        Case "lang"
+                            If Len(Trim(metadata(outputArray2(i, 3)))) = 0 Then
+                                lang = ""
+                            ElseIf ContainsJapanese(metadata(outputArray2(i, 3))) Then
+                                lang = "ja"
+                            Else
+                                lang = "en"
+                            End If
+                            targetWs.Cells(j + 4, i).Value = lang
+                        Case "today"
+                            targetWs.Cells(j + 4, i).NumberFormat = "@"
+                            targetWs.Cells(j + 4, i).Value = Format(Date, "yyyy-mm-dd")
+                        Case "value"
+                            targetWs.Cells(j + 4, i).NumberFormat = "@"
+                            If (Len(Trim(metadata(outputArray2(i, 3)))) > 0) Then
+                                targetWs.Cells(j + 4, i).Value = Trim(metadata(outputArray2(i, 3)))
+                            End If
+                        End Select
+                    End If
+                Next j
+            End If
+        Next i
+        
+    '空白行を削除
+        For n = sourceRowCount + 6 To 6 Step -1
+            If WorksheetFunction.CountA(targetWs.Range(Cells(n, 1), Cells(n, 1000))) = 0 Then
+                targetWs.Rows(n).Delete
+            End If
+        Next n
+        
+    'データ初期化
+    Erase outputArray
+    Erase mappingArray
+    
+    Next mapping
+    '並べ替え用仮シートを削除
+    Application.DisplayAlerts = False
+    tmpWs.Delete
+    Application.DisplayAlerts = True
+    
+End Sub
+Function ContainsJapanese(text As Variant) As Boolean
+    Dim regex As Object
+    Set regex = CreateObject("VBScript.RegExp")
+
+    ' ひらがな・カタカナ・漢字のUnicode範囲を指定
+    regex.pattern = "[\u3040-\u30FF\u4E00-\u9FFF]"
+    regex.IgnoreCase = True
+    regex.Global = True
+
+    ContainsJapanese = regex.Test(text)
+End Function
