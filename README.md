@@ -1,2 +1,2 @@
-# IR_assist_excel
-機関リポジトリアシスト機能Excel版
+# JC_import_metadata_converter
+JAIRO Cloud import metadata converter
